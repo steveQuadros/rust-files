@@ -99,11 +99,19 @@ impl<'a> Store<'a> {
         }
     }
 
-    fn append(&mut self, d: &[u8]) -> std::io::Result<usize> {
-        self.w.write(d)
+    fn append(&mut self, d: &[u8]) -> std::result::Result<(u64, u64), std::io::Error> {
+        let res = self.w.write(d);
+        match res {
+            Ok(byte_count) => {
+                let start = self.size;
+                self.size += byte_count as u64;
+                Ok((start, byte_count as u64))
+            }
+            Err(e) => Err(e),
+        }
     }
 
-    fn read(&mut self, offset: u64, size: usize, into: &mut [u8]) -> std::io::Result<usize> {
+    fn read(&mut self, offset: u64, into: &mut [u8]) -> std::io::Result<usize> {
         self.w.flush()?;
         self.r.seek(SeekFrom::Start(offset))?;
         self.r.read(into)
@@ -134,19 +142,20 @@ mod tests {
 
     #[test]
     fn store() {
+        let filename = "storetest";
         let f = File::options()
             .create(true)
             .append(true)
             .read(true)
-            .open("storetest")
+            .open(filename)
             .unwrap();
         let mut store = Store::new(&f);
-        let offset: usize = 0;
         let s = b"test";
-        let num_written = store.append(s).unwrap();
-        let mut buf: Vec<u8> = vec![0; s.len()];
-        let num_read = store.read(offset as u64, num_written, &mut buf).unwrap();
+        let (offset, c) = store.append(s).unwrap();
+        let mut buf: Vec<u8> = vec![0; c as usize];
+        let num_read = store.read(offset, &mut buf).unwrap();
         assert_eq!(buf, b"test");
         assert_eq!(num_read, 4);
+        std::fs::remove_file(filename).unwrap();
     }
 }
